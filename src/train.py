@@ -21,7 +21,6 @@ def _parse_args():
     parser.add_argument("--num_records",type=int)
     parser.add_argument("--optimizer",type=str,default='adam')
     parser.add_argument("--max_len",type=int,default=45)
-    parser.add_argument("--embedding_dim",type=int,default=50)
     parser.add_argument("--learning_rate",type=float,default=5e-5)
     parser.add_argument("--epochs",type=int,default=1)
     parser.add_argument("--batch_size",type=int,default=32)
