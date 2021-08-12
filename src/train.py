@@ -11,13 +11,14 @@ from pickle import load
 
 def _parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-dir",type=str)
-    parser.add_argument('--output-data-dir', type=str,default=os.environ['SM_OUTPUT_DATA_DIR'])
-    parser.add_argument("--sm-model-dir",type=str,default=os.environ.get("SM_MODEL_DIR"))
+    #parser.add_argument("--model-dir",type=str)
+    #parser.add_argument('--output-data-dir', type=str,default=os.environ['SM_OUTPUT_DATA_DIR'])
+    #parser.add_argument("--sm-model-dir",type=str,default=os.environ.get("SM_MODEL_DIR"))
     parser.add_argument("--train",type=str,default=os.environ.get("SM_CHANNEL_TRAIN"))
+    parser.add_argument("--validation",type=str,default=os.environ.get("SM_CHANNEL_VALIDATION"))
     
     ## Hyperparams
-    parser.add_argument("--model_name",type=str,default='DistilBERT')
+    parser.add_argument("--model_name",type=str,default='BaseBERT')
     parser.add_argument("--num_records",type=int)
     parser.add_argument("--optimizer",type=str,default='adam')
     parser.add_argument("--max_len",type=int,default=45)
@@ -189,10 +190,15 @@ class BaseRoberta:
         return model
         
         
-def _load_data(train_dir,MAX_LEN,epochs,batch_size,valid_batch_size,steps_per_epoch,validation_steps):
+def _load_data(train_dir,valid_dir,MAX_LEN,epochs,batch_size,valid_batch_size,steps_per_epoch,validation_steps):
           
+    print("train_dir : ",train_dir)    
     train_file = os.path.join(train_dir,"train.tfrecord") 
-    valid_file = os.path.join(train_dir,"valid.tfrecord")
+    print("train_file : ",train_file)
+    
+    print("valid_dir:",valid_dir)
+    valid_file = os.path.join(valid_dir,"valid.tfrecord")
+    print("valid_file:",valid_file)
     
     # Create a description of the features.
     feature_description = {
@@ -237,13 +243,16 @@ def _load_encoder(train_dir):
 def main():
     args, unknown = _parse_args()
     print("input train: ",args.train)
+    print("input valid: ",args.validation)
 
     train_dataset, valid_dataset = _load_data(args.train,
+                                              args.validation,
                                               args.max_len,
                                               args.epochs,
                                               args.batch_size,
                                               args.valid_batch_size,
-                                              args.steps_per_epoch,args.validation_steps)    
+                                              args.steps_per_epoch,
+                                              args.validation_steps)    
     encoder = _load_encoder(args.train)
     
     CLASSES = encoder.classes_
@@ -284,7 +293,7 @@ def main():
     print("saving model...")
     #model.save(os.path.join(args.sm_model_dir,f"{args.model_name}.h5"))
     model.save(os.path.join(args.sm_model_dir,f"{args.model_name}"))
-    #model.save(f"./output/model/{args.model_name}/{args.model_name}_test.h5")
+    #odel.save(f"./output/model/{args.model_name}/{args.model_name}_test.h5")
 
     
 if __name__ == "__main__":

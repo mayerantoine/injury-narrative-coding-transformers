@@ -30,9 +30,6 @@ def _parse_args():
     return  parser.parse_known_args()
 
 
-def _load_data():
-    pass
-
 def _tokenize_data(x_train,x_valid,transformer_model):
     
     if transformer_model == 'distilbert-base-uncased':
@@ -107,8 +104,49 @@ def _save_feature_as_tfrecord(tfdataset,file_path):
 
     writer = tf.data.experimental.TFRecordWriter(file_path)
     writer.write(serialized_tfdataset)
+
+def _load_data(train_dir,valid_dir,MAX_LEN,epochs,batch_size,valid_batch_size,steps_per_epoch,validation_steps):
+          
+    print("train_dir : ",train_dir)    
+    train_file = os.path.join(train_dir,"train.tfrecord") 
+    print("train_file : ",train_file)
     
+    print("valid_dir:",valid_dir)
+    valid_file = os.path.join(valid_dir,"valid.tfrecord")
+    print("valid_file:",valid_file)
     
+    # Create a description of the features.
+    feature_description = {
+        'input_ids': tf.io.FixedLenFeature([MAX_LEN], tf.int64),
+        'attention_mask': tf.io.FixedLenFeature([MAX_LEN], tf.int64),
+        'label_ids': tf.io.FixedLenFeature([], tf.int64),
+    }
+        
+    def _parse_function(example_proto):
+
+        # Parse the input `tf.train.Example` proto using the dictionary above.
+        parsed  = tf.io.parse_single_example(example_proto, feature_description)
+
+        return {'input_ids':parsed['input_ids'],'attention_mask':parsed['attention_mask']},parsed['label_ids']
+        
+    
+    train_dataset = tf.data.TFRecordDataset(train_file)
+    train_dataset = train_dataset.repeat(epochs * steps_per_epoch)
+    train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
+    train_dataset = train_dataset.map(_parse_function,num_parallel_calls=tf.data.AUTOTUNE)
+    train_dataset = train_dataset.batch(batch_size)
+    
+    train_dataset.cache()
+    
+    valid_dataset = tf.data.TFRecordDataset(valid_file)
+    valid_dataset = valid_dataset.repeat(epochs * validation_steps)
+    valid_dataset = valid_dataset.prefetch(tf.data.AUTOTUNE)
+    valid_dataset = valid_dataset.map(_parse_function,num_parallel_calls=tf.data.AUTOTUNE)
+    valid_dataset = valid_dataset.batch(valid_batch_size)
+    
+    valid_dataset.cache()
+   
+    return train_dataset, valid_dataset    
     
 def main():
     args, unknown = _parse_args()

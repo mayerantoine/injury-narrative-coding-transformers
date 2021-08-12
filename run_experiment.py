@@ -1,35 +1,75 @@
-import pandas as pd
+import sys
+import subprocess
+    
+# implement pip as a subprocess:
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'transformers'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'nltk'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
+
 import tensorflow as tf
+import transformers
+import nltk 
+    
+# Get Version information
+print("Tensorflow: {0}".format(tf.__version__),'\n')
+print("Hugging Face transfomers: {0}".format(transformers.__version__),'\n')
+print("NLTK: {0}".format(nltk.__version__),'\n')
+
+import os
+import numpy as np
+import pandas as pd
+import argparse
+import sagemaker
+import joblib 
+import collections
 import re
-import nltk
 import string
 from nltk import word_tokenize
+from pickle import load, dump
 from sklearn.model_selection import train_test_split
 from tensorflow.keras import activations, optimizers, losses
 from sklearn.feature_extraction.text import TfidfVectorizer,CountVectorizer
-import numpy as np
-import sagemaker
 from sagemaker import get_execution_role
-import joblib 
-import collections
-import argparse
+from transformers import AutoTokenizer,TFAutoModelForSequenceClassification
+from transformers import  TFDistilBertForSequenceClassification,DistilBertConfig
+from transformers import TFBertForSequenceClassification, BertConfig
+from transformers import TFRobertaForSequenceClassification, RobertaConfig
+from tensorflow.keras.optimizers.schedules import PolynomialDecay
+from transformers.optimization_tf import WarmUp, AdamWeightDecay
+from sklearn.preprocessing import LabelEncoder
+import time
+from time import gmtime, strftime
+from sagemaker.huggingface import HuggingFace
+import logging 
+
+
+save_local_data_path = './data'
 
 
 def _parse_args():
     parser = argparse.ArgumentParser()
-       
-    ## Hyperparams
-    parser.add_argument("--data_path",type=str)
-    parser.add_argument("--is_sample_dataset",type=str,defaul='True')
-    parser.add_argument("--train_percentage",type=float,default=0.05)
-    parser.add_argument("--max_len",type=str,default='adam')
+    ## Experiments parameters
+    parser.add_argument("--data_path", type=str, default='./train.csv')
+    parser.add_argument("--is_sample", type=str, default='True')
+    parser.add_argument("--ratio", type=float, default=0.05)
+    parser.add_argument("--bucket", type=str, default='cdc-cdh-sagemaker-s3fs-dev')
     parser.add_argument("--transformer_model",type=str,default='distilbert-base-uncased')
+    parser.add_argument("--wait",type=str,default='False')
     
-
-
+    
+    ## Hyperparams
+    parser.add_argument("--model_name",type=str,default='DistilBERT')
+    parser.add_argument("--num_records",type=int)
+    parser.add_argument("--optimizer",type=str,default='adam')
+    parser.add_argument("--max_len",type=int,default=45)
+    parser.add_argument("--learning_rate",type=float,default=5e-5)
+    parser.add_argument("--epochs",type=int,default=1)
+    parser.add_argument("--batch_size",type=int,default=32)
+    parser.add_argument("--valid_batch_size",type=int,default=8)
+    parser.add_argument("--steps_per_epoch",type=int)
+    parser.add_argument("--validation_steps",type=int)
+    
     return  parser.parse_known_args()
-
-
 
 
 def get_samples(ratio,train):
@@ -138,25 +178,29 @@ def preprocess_data(X):
 
     return X
 
-def _tokenize_data(x_train,x_valid,transformer_model,MAX_LEN):
+
+def _load_data():
+    pass
+
+def _tokenize_data(x_train,x_valid,transformer_model,max_len):
     
-    if transformer_model == 'distilbert-base-uncased':
-        tokenizer = DistilBertTokenizerFast.from_pretrained(transformer_model)
+    #if transformer_model == 'distilbert-base-uncased':
+    #    tokenizer = DistilBertTokenizerFast.from_pretrained(transformer_model)
+    tokenizer = AutoTokenizer.from_pretrained(transformer_model)
+
+    x_train = x_train.to_list()
+    x_valid = x_valid.to_list()
 
 
-    x_train = X_train_processed.to_list()
-    x_valid = X_valid_processed.to_list()
-
-
-    train_encodings = tokenizer(x_train, max_length=MAX_LEN, truncation=True, padding='max_length',return_tensors='tf')
-    valid_encodings = tokenizer(x_valid, max_length=MAX_LEN, truncation=True, padding='max_length',return_tensors='tf')
+    train_encodings = tokenizer(x_train, max_length=max_len, truncation=True, padding='max_length',return_tensors='tf')
+    valid_encodings = tokenizer(x_valid, max_length=max_len, truncation=True, padding='max_length',return_tensors='tf')
     
     return train_encodings,valid_encodings
 
 
 def _encoding_labels(y_train,y_valid):
     
-    print("Encoding Labels .....")
+    #print("Encoding Labels .....")
     encoder = LabelEncoder()
     encoder.fit(y_train)
     
@@ -225,34 +269,110 @@ def main():
     logging.info("Parsing arguments")
     args, unknown = _parse_args()
     
-    logging.info("input train: ",args.train)
-    logging.info("input valid: ",args.validation)
+      
+    logging.info("Create sagemaker session")    
+    sagemaker_session = sagemaker.Session(default_bucket=args.bucket)
+    role = sagemaker.get_execution_role()
+    default_bucket = sagemaker_session.default_bucket()
     
     logging.info("Getting and splitting data")
-    data = get_data(is_sample=True,ratio=args.train_percentage)
+    data = get_data(args.data_path,is_sample=args.is_sample,ratio=args.ratio)
         
     X_train, y_train = data['train']
     X_valid, y_valid = data['valid']
     
+        
     CLASSES = y_train.unique().tolist()
     
-    print(CLASSES)
-    
+    logging.info(f"Number of classes: {CLASSES}")
+    logging.info("Preprocessing training data...")
     X_train_processed = preprocess_data(X_train)
+    
+    logging.info("Preprocessing validation data...")
     X_valid_processed = preprocess_data(X_valid)
     
-    train_encodings, valid_encondings = _tokenize_data(X_train_processed,X_valid_processed,args.transformer_model,args.max_len)       
+    print(X_train_processed.head())
+    
+    logging.info("Tokenize and encode data...")
+    train_encodings, valid_encodings = _tokenize_data(X_train_processed,X_valid_processed,args.transformer_model,args.max_len)       
     y_train_encode, y_valid_encode = _encoding_labels(y_train,y_valid)
     
+    logging.info("Create tfdataset...")
     train_tfdataset = construct_tfdataset(train_encodings, y_train_encode)
     valid_tfdataset = construct_tfdataset(valid_encodings, y_valid_encode)
     
     # training data
-    _save_feature_as_tfrecord(train_tfdataset,'/opt/ml/processing/output/processed/train/train.tfrecord')
+    logging.info("Saving training tfrecords....")
+    _save_feature_as_tfrecord(train_tfdataset,'./data/train.tfrecord')
 
     #validation data
-    _save_feature_as_tfrecord(valid_tfdataset,'/opt/ml/processing/output/processed/validation/valid.tfrecord')
+    logging.info("Saving validation tfrecords....")
+    _save_feature_as_tfrecord(valid_tfdataset,'./data/valid.tfrecord')
+    
+    
+    logging.info("Upload data to S3")
+    
+    data_prefix = 'projects/project006/injury-data'
+    tfrecord_data_location = sagemaker_session.upload_data(path = './data',
+                                                      bucket = args.bucket,
+                                                      key_prefix = data_prefix)
+    print(tfrecord_data_location)
+    
+    output_prefix = 'projects/project006/output'
+    output_path = 's3://{}/{}/'.format(args.bucket, output_prefix )
 
+    
+    num_records = len(X_train)
+    num_valid_records = len(X_valid)
+    max_len = args.max_len
+    epochs =args.epochs
+    batch_size =args.batch_size
+    valid_batch_size = args.batch_size
+    steps_per_epoch = num_records // batch_size
+    validation_steps = num_valid_records // valid_batch_size
+    learning_rate = args.learning_rate
+    optimizer = 'adam'
+    
+    job_name_prefix = f"training-{args.model_name,}"
+    timestamp = strftime("-%m-%d-%M-%S", gmtime())
+
+    job_name = job_name_prefix + timestamp
+
+    _estimator = HuggingFace(
+            base_job_name  = job_name,
+            entry_point="train.py",
+            source_dir = "./src/",
+            role=role,
+            instance_count=1,
+            volume_size = 5,
+            max_run = 18000,
+            instance_type='ml.p3.2xlarge',
+            transformers_version = "4.4",
+            tensorflow_version  = "2.4",
+            py_version="py37",
+            output_path = output_path,
+            hyperparameters = {
+                    "model_name": args.model_name,
+                    "num_records":  num_records,
+                    "max_len":max_len,
+                    "epochs":int(epochs),
+                    "learning_rate":float(learning_rate),
+                    "batch_size":int(batch_size),
+                    "valid_batch_size":valid_batch_size,
+                    "steps_per_epoch": steps_per_epoch,
+                    "validation_steps": validation_steps,
+                    "optimizer":optimizer
+                    },
+            metric_definitions = [{'Name':'train:loss','Regex':'loss: ([0-9\\.]+)'},
+                                        {'Name':'train:accuracy','Regex':'acc: ([0-9\\.]+)'},
+                                        {'Name':'validation:loss','Regex':'val_loss: ([0-9\\.]+)'},
+                                        {'Name':'validation:accuracy','Regex':'val_acc: ([0-9\\.]+)'}],
+            enable_sagemaker_metrics = True
+        )
+    
+    logging.info('Start training...')
+    #_estimator.fit({'train':tfrecord_data_location}, wait=False)
+        
 
 if __name__ == "__main__":
     main()
