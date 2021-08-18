@@ -197,7 +197,7 @@ def _load_data(train_dir,valid_dir,MAX_LEN,epochs,batch_size,valid_batch_size,st
     print("train_file : ",train_file)
     
     print("valid_dir:",valid_dir)
-    valid_file = os.path.join(valid_dir,"valid.tfrecord")
+    valid_file = os.path.join(train_dir,"valid.tfrecord")
     print("valid_file:",valid_file)
     
     # Create a description of the features.

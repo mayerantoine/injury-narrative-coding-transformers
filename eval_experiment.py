@@ -98,22 +98,6 @@ def _load_data(train_dir,MAX_LEN,epochs,batch_size,valid_batch_size,steps_per_ep
    
     return train_dataset, valid_dataset
 
-def download_model(job_name,sagemaker_session):
-    
-    modeldesc = sagemaker_session.describe_training_job(job_name)
-    s3_model_path = modeldesc['ModelArtifacts']['S3ModelArtifacts']
-
-    
-    os.makedirs(f"./output/model/{job_name}/",exist_ok=True)
-
-    S3Downloader.download(
-        s3_uri=s3_model_path, # s3 uri where the trained model is located
-        local_path=f"./output/model/{job_name}/", # local path where *.targ.gz is saved
-        sagemaker_session=sagemaker_session # sagemaker session used for training the model
-    )
-    
-    return s3_model_path, modeldesc['HyperParameters']
-
 
 def extract_data_load_model(job_name,model_name):
 
@@ -141,7 +125,7 @@ def _evaluate_model(loaded_model,train_dataset,valid_dataset,hp):
     
 def _batch_predict(model, encoder,model_name, max_len,x,y) :
     tkzr = AutoTokenizer.from_pretrained(model_name)
-    encodings_x =  tkzr(x, max_length=MAX_LEN, truncation=True, padding='max_length',return_tensors='tf')
+    encodings_x =  tkzr(x, max_length=max_len, truncation=True, padding='max_length',return_tensors='tf')
     tfdataset = construct_tfdataset(encodings_x).batch(32)
     preds = loaded_model.predict(tfdataset)
     predictions_encode = pd.DataFrame(data=preds).apply(lambda x: np.argmax(x),axis=1)

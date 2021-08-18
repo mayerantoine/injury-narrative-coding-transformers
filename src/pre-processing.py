@@ -13,6 +13,11 @@ from sagemaker import get_execution_role
 import joblib 
 import collections
 import argparse
+import logging
+import os
+from transformers import AutoTokenizer,TFAutoModelForSequenceClassification
+from sklearn.preprocessing import LabelEncoder
+from pickle import load, dump
 
 
 def _parse_args():
@@ -20,17 +25,17 @@ def _parse_args():
        
     ## Hyperparams
     parser.add_argument("--data_path",type=str)
-    parser.add_argument("--is_sample_dataset",type=str,defaul='True')
+    parser.add_argument("--is_sample_dataset",default=False,action='store_true')
     parser.add_argument("--train_percentage",type=float,default=0.05)
-    parser.add_argument("--max_len",type=str,default='adam')
-    parser.add_argument("--transformer_model",type=str,default='distilbert-base-uncased')
+    parser.add_argument("--max_len",type=int,default=45)
+    parser.add_argument("--transformer_model",type=str,default='bert-base-uncased')
     
 
 
     return  parser.parse_known_args()
 
 
-
+        
 
 def get_samples(ratio,train):
     great_than2_classes = train['event'].value_counts()[train['event'].value_counts() >2].index
@@ -46,7 +51,10 @@ def get_samples(ratio,train):
 def get_data(data_file,is_sample=None,ratio=None,is_test_split=False):
   
     train = pd.read_csv(data_file)
+    print(is_sample)
+    
     if is_sample:
+        print(is_sample)
         train = get_samples(ratio = ratio, train=train)
     great_than2_classes = train['event'].value_counts()[train['event'].value_counts() >5].index 
     train_filter = train[train['event'].isin(great_than2_classes.to_list())]
@@ -58,7 +66,7 @@ def get_data(data_file,is_sample=None,ratio=None,is_test_split=False):
 
     logging.info(f" X {X.shape} , y : {y.shape}")
 
-    X_train_valid,X_test,y_train_valid, y_test = train_test_split(X,y,train_size=0.8,random_state=42,stratify=y)
+    X_train_valid,X_test,y_train_valid, y_test = train_test_split(X,y,train_size=0.9,random_state=42,stratify=y)
     
     if is_test_split:
         X_train,X_valid,y_train,y_valid = train_test_split(X_train_valid,y_train_valid,train_size=0.8,random_state=42,stratify=y_train_valid)
@@ -138,10 +146,12 @@ def preprocess_data(X):
 
     return X
 
-def _tokenize_data(x_train,x_valid,transformer_model,MAX_LEN):
+def _tokenize_data(X_train_processed,X_valid_processed,transformer_model,MAX_LEN):
     
     if transformer_model == 'distilbert-base-uncased':
-        tokenizer = DistilBertTokenizerFast.from_pretrained(transformer_model)
+        tokenizer = AutoTokenizer.from_pretrained(transformer_model)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
 
     x_train = X_train_processed.to_list()
@@ -156,18 +166,26 @@ def _tokenize_data(x_train,x_valid,transformer_model,MAX_LEN):
 
 def _encoding_labels(y_train,y_valid):
     
-    print("Encoding Labels .....")
+    logging.info("Encoding Labels .....")
     encoder = LabelEncoder()
     encoder.fit(y_train)
     
     y_train_encode = np.asarray(encoder.transform(y_train))
     y_valid_encode = np.asarray(encoder.transform(y_valid))
     
-    data_path='./data'
+    #data_path='/opt/ml/processing/output/processed/train/'
+    data_path = './data/train/'
     os.makedirs(data_path,exist_ok=True)
+    
+    #test_data_path='/opt/ml/processing/output/processed/test/'
+    test_data_path='./data/test/'
+    os.makedirs(test_data_path,exist_ok=True)
 
-
+    # save encoder for training
     dump(encoder,open(os.path.join(data_path,'encode.pkl'),'wb'))
+    
+    # save encoder for testing
+    dump(encoder,open(os.path.join(test_data_path,'encode.pkl'),'wb'))
     
     return y_train_encode, y_valid_encode
     
@@ -214,6 +232,13 @@ def _save_feature_as_tfrecord(tfdataset,file_path):
     writer.write(serialized_tfdataset)
     
 
+def _load_test_data(test_data_path):
+    test_data = pd.read_csv(f'{test_data_path}/test_data.csv')
+    test_data = test_data[~test_data['event'].isin([10,29,30,59,74])]
+    test_data = test_data[['text','event']]
+                          
+    return test_data
+
 
 def main():
     
@@ -225,11 +250,13 @@ def main():
     logging.info("Parsing arguments")
     args, unknown = _parse_args()
     
-    logging.info("input train: ",args.train)
-    logging.info("input valid: ",args.validation)
     
     logging.info("Getting and splitting data")
-    data = get_data(is_sample=True,ratio=args.train_percentage)
+    data_file = f"{args.data_path}/train.csv"
+                          
+    #data = get_data(data_file,is_sample=args.is_sample_dataset,ratio=args.train_percentage)
+    data = get_data(data_file,is_sample=bool(args.is_sample_dataset) ,ratio=args.train_percentage)
+    test_data = _load_test_data(args.data_path)
         
     X_train, y_train = data['train']
     X_valid, y_valid = data['valid']
@@ -238,20 +265,43 @@ def main():
     
     print(CLASSES)
     
+    logging.info("Preprocessing...")
     X_train_processed = preprocess_data(X_train)
     X_valid_processed = preprocess_data(X_valid)
     
-    train_encodings, valid_encondings = _tokenize_data(X_train_processed,X_valid_processed,args.transformer_model,args.max_len)       
+    logging.info("Tokenization and encoding...")
+    
+    train_encodings, valid_encodings = _tokenize_data(X_train_processed,X_valid_processed,args.transformer_model,args.max_len)       
     y_train_encode, y_valid_encode = _encoding_labels(y_train,y_valid)
+    
+    logging.info("Create TF Dataset....")
     
     train_tfdataset = construct_tfdataset(train_encodings, y_train_encode)
     valid_tfdataset = construct_tfdataset(valid_encodings, y_valid_encode)
     
+    logging.info("Saving train and valid TF Records...")
+    
     # training data
-    _save_feature_as_tfrecord(train_tfdataset,'/opt/ml/processing/output/processed/train/train.tfrecord')
+    #_save_feature_as_tfrecord(train_tfdataset,'/opt/ml/processing/output/processed/train/train.tfrecord')
+    _save_feature_as_tfrecord(train_tfdataset,'./data/train/train.tfrecord')
 
+                          
     #validation data
-    _save_feature_as_tfrecord(valid_tfdataset,'/opt/ml/processing/output/processed/validation/valid.tfrecord')
+    #_save_feature_as_tfrecord(valid_tfdataset,'/opt/ml/processing/output/processed/validation/valid.tfrecord')
+    _save_feature_as_tfrecord(valid_tfdataset,'./data/valid/valid.tfrecord')
+ 
+    logging.info("Saving test dataset...")                      
+    X_test, y_test = test_data['text'], test_data['event']
+    X_test_processed = preprocess_data(X_test)
+                          
+    text_processed = pd.DataFrame({'text':X_test_processed,'event':y_test})
+    
+    #test data
+    #text_processed.to_csv('./opt/ml/processing/output/processed/test/text_processed.csv')
+    text_processed.to_csv('./data/test/text_processed.csv')
+    
+    logging.info("Complete")
+
 
 
 if __name__ == "__main__":

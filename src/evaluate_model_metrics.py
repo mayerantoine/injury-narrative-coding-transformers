@@ -46,15 +46,101 @@ from transformers.optimization_tf import AdamWeightDecay
 import tarfile
 from sagemaker.s3 import S3Downloader
 
+
 def _parse_args():
     parser = argparse.ArgumentParser()
     ## Experiments parameters
-    parser.add_argument("--job_name", type=str, default='')
-    parser.add_argument("--train_dir", type=str, default='./data')
+    parser.add_argument("--input_data", type=str, default="/opt/ml/processing/input/data")
+    parser.add_argument("--input_model",type=str,default="/opt/ml/processing/input/model")
+    parser.add_argument("--output_data",type=str,default="/opt/ml/processing/output")
+    parser.add_argument("--max_len", type=str, default=45)
 
     
     return  parser.parse_known_args()
 
+
+def compute_metrics(pred):
+    labels = pred.true_event
+    preds = pred.preds_event
+    acc = accuracy_score(labels, preds)
+    bal_acc = balanced_accuracy_score(labels, preds)
+    precision = precision_score(labels,preds,average='macro')
+    recall = recall_score(labels,preds,average='macro')
+    f1 = f1_score(labels,preds,average='macro')
+    return {
+        'accuracy': acc,
+        'balanced_accuracy':bal_acc,
+        'f1': f1,
+        'precision': precision,
+        'recall': recall
+    }
+
+
+
+
+
+def construct_tfdataset(encodings, y=None):
+    if y is not None:
+        return tf.data.Dataset.from_tensor_slices((dict(encodings),y))
+    else:
+        # this case is used when making predictions on unseen samples after training
+        return tf.data.Dataset.from_tensor_slices(dict(encodings))
+
+    
+def _load_encoder(test_dir):
+    # load the encoder
+    encoder_file = os.path.join(test_dir,'encode.pkl') 
+    encoder = load(open(encoder_file, 'rb'))
+    
+    return encoder
+
+
+def extract_data_load_model(input_model,model_tar_path,model_name):
+    model_class = 'BaseBERT'
+    t = tarfile.open(model_tar_path, 'r:gz')
+    t.extractall(path=f"{input_model}")
+    _model = tf.keras.models.load_model(f"{input_model}/{model_class}",custom_objects={'AdamWeightDecay':AdamWeightDecay})
+    
+    return _model
+
+
+
+def _batch_predict(model, encoder,model_name, max_len,x,y) :
+    tkzr = AutoTokenizer.from_pretrained(model_name)
+    encodings_x =  tkzr(x, max_length=max_len, truncation=True, padding='max_length',return_tensors='tf')
+    tfdataset = construct_tfdataset(encodings_x).batch(32)
+    preds = model.predict(tfdataset)
+    predictions_encode = pd.DataFrame(data=preds).apply(lambda x: np.argmax(x),axis=1)
+    categories = encoder.classes_.tolist()
+    predictions_event= predictions_encode.apply(lambda x:categories[x])
+
+
+    print(len(predictions_event))
+    results = pd.DataFrame({'text': x,
+                      'true_event':y,
+                      'preds_encode': predictions_encode,
+                      'preds_event':predictions_event
+                            })
+
+
+    return results
+
+
+
+def _create_predictor(model, encoder,model_name, max_len,text):
+    tkzr = AutoTokenizer.from_pretrained(model_name)
+    x = [text]
+    encodings =  tkzr(x, max_length=max_len, truncation=True, padding='max_length',return_tensors='tf')
+    tfdataset = construct_tfdataset(encodings)
+    tfdataset = tfdataset.batch(1)
+    preds = model.predict(tfdataset)
+    categories = encoder.classes_.tolist()
+    enc = np.argmax(preds[0])
+    
+    return {     'text' : x,
+                 'predict_proba' : preds[0][np.argmax(preds[0])],
+                 'predicted_class' : categories[np.argmax(preds)]                             
+           }
 
 
 def main():
@@ -71,24 +157,44 @@ def main():
     logging.info("Create sagemaker session")    
     sagemaker_session = sagemaker.Session()
     
-    logging.info("Download model from S3")  
-    s3_model_artifact , hp = download_model(args.job_name,sagemaker_session)
+    logging.info("input_data: {}".format(args.input_data))
+    logging.info("input_model: {}".format(args.input_model))
+
+    logging.info("Listing contents of input model dir: {}".format(args.input_model))
+    input_files = os.listdir(args.input_model)
+    for file in input_files:
+        print(file)
     
-    logging.info("Loading data..")  
-    train_dataset,valid_dataset = _load_data(args.train_dir,int(hp['max_len']),
-                                             int(hp['epochs']),
-                                             int(hp['batch_size']),
-                                             int(hp['valid_batch_size']),
-                                             int(hp['steps_per_epoch']),
-                                             int(hp['validation_steps']))
+    logging.info("Loading model..")
+    model_tar_path = "{}/model.tar.gz".format(args.input_model)
+    _model = extract_data_load_model(args.input_model,model_tar_path,'bert-base-uncased')
     
-    logging.info("Extract and loading the model...") 
-    model_name = hp['model_name'].strip('"')
+    logging.info("Listing contents of input data dir: {}".format(args.input_data))
+    input_files = os.listdir(args.input_data)
     
-    loaded_model = extract_data_load_model(args.job_name,model_name)
+    
+    logging.info("Loading encoder..")
+    encode = _load_encoder(args.input_data)
+   # logging.info("Encoder class:",encode.classes_.tolist())
+    
+    logging.info(" Load and preprocess Test data")
+    test_data_path = "{}/test_processed.csv".format(args.input_data)
+    
+    test_processed = pd.read_csv(test_data_path)
+    
+    x_test = test_processed['text'].tolist()
+    y_test = test_processed['event'].tolist()
+    
+    logging.info("Batch predict test results")
+
+    
+    text = x_test[0]
+    pred = _create_predictor(_model,encode,'bert-base-uncased',45,text)
+    print(pred)
+          
+    results_test = _batch_predict(_model,encode,'bert-base-uncased',45,x_test,y_test)
+    print(results_test)
         
-        
-    _evaluate_model(loaded_model,train_dataset,valid_dataset,hp)
     
 
 if __name__ == "__main__":
