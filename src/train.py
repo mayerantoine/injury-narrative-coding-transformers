@@ -11,9 +11,9 @@ from pickle import load
 
 def _parse_args():
     parser = argparse.ArgumentParser()
-    #parser.add_argument("--model-dir",type=str)
-    #parser.add_argument('--output-data-dir', type=str,default=os.environ['SM_OUTPUT_DATA_DIR'])
-    #parser.add_argument("--sm-model-dir",type=str,default=os.environ.get("SM_MODEL_DIR"))
+    parser.add_argument("--model-dir",type=str)
+    parser.add_argument('--output-data-dir', type=str,default=os.environ['SM_OUTPUT_DATA_DIR'])
+    parser.add_argument("--sm-model-dir",type=str,default=os.environ.get("SM_MODEL_DIR"))
     parser.add_argument("--train",type=str,default=os.environ.get("SM_CHANNEL_TRAIN"))
     parser.add_argument("--validation",type=str,default=os.environ.get("SM_CHANNEL_VALIDATION"))
     
@@ -131,8 +131,8 @@ class BaseBERT:
         warmup_steps = num_train_steps * 0.1
         warmup_schedule  = WarmUp(self.learning_rate,decay_schedule_fn,warmup_steps)
         
-        #optimizer = tf.keras.optimizers.Adam(learning_rate=lr_scheduler)
-        optimizer = AdamWeightDecay (learning_rate=warmup_schedule, weight_decay_rate=0.01, epsilon=1e-6)
+        #optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
+        optimizer = AdamWeightDecay (learning_rate=warmup_schedule)
         loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
     
         model.compile(optimizer=optimizer, loss=loss, metrics=['acc'])
@@ -181,7 +181,7 @@ class BaseRoberta:
         warmup_steps = num_train_steps * 0.1
         warmup_schedule  = WarmUp(self.learning_rate,decay_schedule_fn,warmup_steps)
         
-        #optimizer = tf.keras.optimizers.Adam(learning_rate=lr_scheduler)
+        #optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
         optimizer = AdamWeightDecay (learning_rate=warmup_schedule, weight_decay_rate=0.01, epsilon=1e-6)
         loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
         
@@ -217,16 +217,16 @@ def _load_data(train_dir,valid_dir,MAX_LEN,epochs,batch_size,valid_batch_size,st
     
     train_dataset = tf.data.TFRecordDataset(train_file)
     train_dataset = train_dataset.repeat(epochs * steps_per_epoch)
-    train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
-    train_dataset = train_dataset.map(_parse_function,num_parallel_calls=tf.data.AUTOTUNE)
+    train_dataset = train_dataset.prefetch(tf.data.experimental.AUTOTUNE)
+    train_dataset = train_dataset.map(_parse_function,num_parallel_calls=tf.data.experimental.AUTOTUNE)
     train_dataset = train_dataset.batch(batch_size)
     
     train_dataset.cache()
     
     valid_dataset = tf.data.TFRecordDataset(valid_file)
     valid_dataset = valid_dataset.repeat(epochs * validation_steps)
-    valid_dataset = valid_dataset.prefetch(tf.data.AUTOTUNE)
-    valid_dataset = valid_dataset.map(_parse_function,num_parallel_calls=tf.data.AUTOTUNE)
+    valid_dataset = valid_dataset.prefetch(tf.data.experimental.AUTOTUNE)
+    valid_dataset = valid_dataset.map(_parse_function,num_parallel_calls=tf.data.experimental.AUTOTUNE)
     valid_dataset = valid_dataset.batch(valid_batch_size)
     
     valid_dataset.cache()
@@ -245,6 +245,7 @@ def main():
     print("input train: ",args.train)
     print("input valid: ",args.validation)
 
+    print("loading data...")
     train_dataset, valid_dataset = _load_data(args.train,
                                               args.validation,
                                               args.max_len,
@@ -253,6 +254,7 @@ def main():
                                               args.valid_batch_size,
                                               args.steps_per_epoch,
                                               args.validation_steps)    
+    print("loading encoder...")
     encoder = _load_encoder(args.train)
     
     CLASSES = encoder.classes_
@@ -270,6 +272,7 @@ def main():
             'num_records':args.num_records
         }
     
+    print("Building model...")
     if args.model_name == 'DistilBERT' :
         model = DistilBERT(params).build()   
     elif args.model_name == 'BaseBERT':
@@ -292,8 +295,8 @@ def main():
     
     print("saving model...")
     #model.save(os.path.join(args.sm_model_dir,f"{args.model_name}.h5"))
-    #model.save(os.path.join(args.sm_model_dir,f"{args.model_name}"))
-    model.save(f"./output/model/{args.model_name}/{args.model_name}_test.h5")
+    model.save(os.path.join(args.sm_model_dir,f"{args.model_name}"))
+    #model.save(f"./output/model/{args.model_name}/{args.model_name}_test.h5")
 
     
 if __name__ == "__main__":

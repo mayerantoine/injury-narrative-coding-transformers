@@ -173,12 +173,12 @@ def _encoding_labels(y_train,y_valid):
     y_train_encode = np.asarray(encoder.transform(y_train))
     y_valid_encode = np.asarray(encoder.transform(y_valid))
     
-    #data_path='/opt/ml/processing/output/processed/train/'
-    data_path = './data/train/'
+    data_path='/opt/ml/processing/output/processed/train/'
+    #data_path = './data/train/'
     os.makedirs(data_path,exist_ok=True)
     
-    #test_data_path='/opt/ml/processing/output/processed/test/'
-    test_data_path='./data/test/'
+    test_data_path='/opt/ml/processing/output/processed/test/'
+    #test_data_path='./data/test/'
     os.makedirs(test_data_path,exist_ok=True)
 
     # save encoder for training
@@ -282,13 +282,13 @@ def main():
     logging.info("Saving train and valid TF Records...")
     
     # training data
-    #_save_feature_as_tfrecord(train_tfdataset,'/opt/ml/processing/output/processed/train/train.tfrecord')
-    _save_feature_as_tfrecord(train_tfdataset,'./data/train/train.tfrecord')
+    _save_feature_as_tfrecord(train_tfdataset,'/opt/ml/processing/output/processed/train/train.tfrecord')
+    #_save_feature_as_tfrecord(train_tfdataset,'./data/train/train.tfrecord')
 
                           
     #validation data
-    #_save_feature_as_tfrecord(valid_tfdataset,'/opt/ml/processing/output/processed/validation/valid.tfrecord')
-    _save_feature_as_tfrecord(valid_tfdataset,'./data/valid/valid.tfrecord')
+    _save_feature_as_tfrecord(valid_tfdataset,'/opt/ml/processing/output/processed/validation/valid.tfrecord')
+    #_save_feature_as_tfrecord(valid_tfdataset,'./data/valid/valid.tfrecord')
  
     logging.info("Saving test dataset...")                      
     X_test, y_test = test_data['text'], test_data['event']
@@ -297,8 +297,8 @@ def main():
     text_processed = pd.DataFrame({'text':X_test_processed,'event':y_test})
     
     #test data
-    #text_processed.to_csv('./opt/ml/processing/output/processed/test/text_processed.csv')
-    text_processed.to_csv('./data/test/text_processed.csv')
+    text_processed.to_csv('./opt/ml/processing/output/processed/test/text_processed.csv')
+    #text_processed.to_csv('./data/test/text_processed.csv')
     
     logging.info("Complete")
 

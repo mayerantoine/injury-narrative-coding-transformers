@@ -190,12 +190,31 @@ def main():
     
     text = x_test[0]
     pred = _create_predictor(_model,encode,'bert-base-uncased',45,text)
-    print(pred)
+    print(f"""{text}""",f"""{pred}""")
           
     results_test = _batch_predict(_model,encode,'bert-base-uncased',45,x_test,y_test)
-    print(results_test)
-        
+    metrics = compute_metrics(results_test)
+    print(metrics)
     
+    # Model Output
+    metrics_path = os.path.join(args.output_data, "metrics/")
+    os.makedirs(metrics_path,exist_ok=True)
+    
+    report_dict = {
+        "metrics": {
+            "accuracy": {
+                "value": accuracy,
+            },
+        },
+    }
+
+    evaluation_path = "{}/evaluation.json".format(metrics_path)
+    with open(evaluation_path, "w") as f:
+        f.write(json.dumps(report_dict))
+        
+    print("Complete")
+        
+
 
 if __name__ == "__main__":
     main()
