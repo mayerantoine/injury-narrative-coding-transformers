@@ -1,3 +1,11 @@
+import sys
+import subprocess
+    
+# implement pip as a subprocess:
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'transformers'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'nltk'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
+
 import os
 import tensorflow as tf
 import numpy as np

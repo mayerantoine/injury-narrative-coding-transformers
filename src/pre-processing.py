@@ -1,5 +1,14 @@
+import sys
+import subprocess
+    
+# implement pip as a subprocess:
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'transformers'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'nltk'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'nltk'])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "sagemaker"])
+
 import pandas as pd
-import tensorflow as tf
 import re
 import nltk
 import string
@@ -18,13 +27,14 @@ import os
 from transformers import AutoTokenizer,TFAutoModelForSequenceClassification
 from sklearn.preprocessing import LabelEncoder
 from pickle import load, dump
+import tensorflow as tf
 
 
 def _parse_args():
     parser = argparse.ArgumentParser()
        
     ## Hyperparams
-    parser.add_argument("--data_path",type=str)
+    parser.add_argument("--data_path",type=str,default="/opt/ml/processing/input/data")
     parser.add_argument("--is_sample_dataset",default=False,action='store_true')
     parser.add_argument("--train_percentage",type=float,default=0.05)
     parser.add_argument("--max_len",type=int,default=45)
@@ -135,6 +145,8 @@ def remove_useless_words(text,useless_words):
 
 def preprocess_data(X):
     """ Preprocess : cleaning and remove stop words"""
+    
+   
 
     X = X.apply(lambda x: re.sub(r'\d+', '', x))
     X = X.apply(lambda x: clean_text(x))
@@ -250,6 +262,8 @@ def main():
     logging.info("Parsing arguments")
     args, unknown = _parse_args()
     
+    nltk.download('stopwords')
+    nltk.download('punkt')
     
     logging.info("Getting and splitting data")
     data_file = f"{args.data_path}/train.csv"
