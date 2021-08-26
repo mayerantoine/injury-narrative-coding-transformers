@@ -5,6 +5,7 @@ import subprocess
 subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'transformers'])
 subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'nltk'])
 subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade','sagemaker'])
 
 import tensorflow as tf
 import transformers

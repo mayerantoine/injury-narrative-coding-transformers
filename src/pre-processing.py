@@ -251,6 +251,21 @@ def _load_test_data(test_data_path):
                           
     return test_data
 
+def get_test_data(test_data_path, is_sample, ratio):
+    
+    test_data = pd.read_csv(f'{test_data_path}/test_data.csv')
+    test_data = test_data[~test_data['event'].isin([10,29,30,59,74])]
+    test_data = test_data[['text','event']]
+    
+    if is_sample:
+        test_data = get_samples(ratio = ratio, train=test_data) 
+        great_than5_classes = test_data['event'].value_counts()[test_data['event'].value_counts() >5].index
+        test_data = test_data[test_data['event'].isin(great_than5_classes.to_list())]
+    
+    print("nb classes in final data:",test_data['event'].nunique())
+    print(f"test_data_small.shape {test_data.shape}")
+    
+    return test_data
 
 def main():
     
@@ -270,7 +285,8 @@ def main():
                           
     #data = get_data(data_file,is_sample=args.is_sample_dataset,ratio=args.train_percentage)
     data = get_data(data_file,is_sample=bool(args.is_sample_dataset) ,ratio=args.train_percentage)
-    test_data = _load_test_data(args.data_path)
+    #test_data = _load_test_data(args.data_path)
+    test_data = get_test_data(args.data_path,bool(args.is_sample_dataset), ratio=args.train_percentage)
         
     X_train, y_train = data['train']
     X_valid, y_valid = data['valid']
