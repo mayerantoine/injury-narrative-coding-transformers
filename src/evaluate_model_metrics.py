@@ -46,6 +46,7 @@ from sklearn.metrics import accuracy_score,f1_score,precision_score,recall_score
 from transformers.optimization_tf import AdamWeightDecay
 import tarfile
 from sagemaker.s3 import S3Downloader
+import json
 
 
 def _parse_args():
@@ -171,7 +172,9 @@ def main():
     _model = extract_data_load_model(args.input_model,model_tar_path,'bert-base-uncased')
     
     logging.info("Listing contents of input data dir: {}".format(args.input_data))
-    input_files = os.listdir(args.input_data)
+    input_data_files = os.listdir(args.input_data)
+    for data_file in input_data_files:
+        print(data_file)
     
     
     logging.info("Loading encoder..")
@@ -204,7 +207,7 @@ def main():
     report_dict = {
         "metrics": {
             "accuracy": {
-                "value": accuracy,
+                "value": metrics['accuracy'],
             },
         },
     }
@@ -212,6 +215,11 @@ def main():
     evaluation_path = "{}/evaluation.json".format(metrics_path)
     with open(evaluation_path, "w") as f:
         f.write(json.dumps(report_dict))
+    
+    print("Listing contents of output/metrics dir: {}".format(metrics_path))
+    output_files = os.listdir("{}".format(metrics_path))
+    for file in output_files:
+        print(file)
         
     print("Complete")
         

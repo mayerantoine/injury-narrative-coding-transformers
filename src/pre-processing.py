@@ -327,7 +327,7 @@ def main():
     text_processed = pd.DataFrame({'text':X_test_processed,'event':y_test})
     
     #test data
-    text_processed.to_csv('./opt/ml/processing/output/processed/test/text_processed.csv')
+    text_processed.to_csv('./opt/ml/processing/output/processed/test/test_processed.csv')
     #text_processed.to_csv('./data/test/text_processed.csv')
     
     logging.info("Complete")
